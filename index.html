@@ -305,12 +305,6 @@ function CaseHub() {
 
   const notify = (m) => { setToast(m); setTimeout(() => setToast(""), 2600); };
 
-  if (loading) return (
-    <div style={{ fontFamily: T.sans, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: T.paper }}>
-      <p style={{ color: T.faint, fontSize: 14 }}>Loading your case data…</p>
-    </div>
-  );
-
   const addIncident = (inc) => {
     const row = { id: uid(), created_at: new Date().toISOString(), ...inc };
     setIncidents((p) => [...p, row].sort((a, b) => a.occurred_on.localeCompare(b.occurred_on)));
@@ -420,6 +414,12 @@ function CaseHub() {
     ["", [["settings", "Settings & backup"]]],
   ];
   const audit = useMemo(() => runAudit(incidents, evidence, witnesses), [incidents, evidence, witnesses]);
+
+  if (loading) return (
+    <div style={{ fontFamily: T.sans, display: "flex", alignItems: "center", justifyContent: "center", minHeight: "100vh", background: T.paper }}>
+      <p style={{ color: T.faint, fontSize: 14 }}>Loading your case data…</p>
+    </div>
+  );
 
   return (
     <div style={{ fontFamily: T.sans, background: T.paper, color: T.ink, minHeight: "100vh", display: "flex" }}>
