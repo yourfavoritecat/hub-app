@@ -671,7 +671,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
                       </span>
                       <span style={{ fontFamily: T.mono, fontSize: 11.5, color: T.faint }}>{fmtDate(i.occurred_on)}{i.occurred_time ? " · " + i.occurred_time : ""}</span>
                     </div>
-                    <p style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0" }}>{i.description}</p>
+                    <div style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0", whiteSpace: "pre-wrap" }}>{i.description}</div>
                     {i.quotes && <p style={{ fontSize: 12.5, fontFamily: T.serif, fontStyle: "italic", margin: "4px 0", color: "#444" }}>"{i.quotes}"</p>}
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
                       {story && <span style={{ fontSize: 10.5, letterSpacing: ".04em", textTransform: "uppercase", color: story.color, border: "1px solid " + story.color, padding: "1px 7px", borderRadius: 2, background: "#fff", fontWeight: 600 }}>{story.label}</span>}
