@@ -543,6 +543,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
   const [personFilter, setPersonFilter] = useState("");
   const [storyFilter, setStoryFilter] = useState("");
   const [editId, setEditId] = useState(null);
+  const [inlineEdit, setInlineEdit] = useState(null); // {id, field}
   const [viewExhibit, setViewExhibit] = useState(null);
   const [showContext, setShowContext] = useState(false);
   const [ctxOpen, setCtxOpen] = useState({});
@@ -667,12 +668,35 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 10, flexWrap: "wrap" }}>
                       <span style={{ display: "flex", alignItems: "baseline", gap: 6 }}>
                         <button onClick={() => onUpdate(i.id, { starred: !i.starred })} title={i.starred ? "Unstar" : "Star this item"} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 16, lineHeight: 1, color: i.starred ? "#D4A017" : "#CCC" }}>{i.starred ? "★" : "☆"}</button>
-                        <strong style={{ fontSize: 14 }}>{i.title}</strong>
+                        {inlineEdit && inlineEdit.id === i.id && inlineEdit.field === "title" ? (
+                          <input autoFocus value={i.title} onChange={(e) => onUpdate(i.id, { title: e.target.value })} onBlur={() => setInlineEdit(null)} onKeyDown={(e) => { if (e.key === "Enter") setInlineEdit(null); if (e.key === "Escape") setInlineEdit(null); }} style={{ fontSize: 14, fontWeight: 700, padding: "2px 6px", border: "1px solid " + T.gold, borderRadius: 3, background: "#FFFDF5", width: "100%" }} />
+                        ) : (
+                          <strong style={{ fontSize: 14, cursor: "text", borderBottom: "1px dashed transparent" }} onDoubleClick={() => setInlineEdit({ id: i.id, field: "title" })} title="Double-click to edit">{i.title}</strong>
+                        )}
                       </span>
                       <span style={{ fontFamily: T.mono, fontSize: 11.5, color: T.faint }}>{fmtDate(i.occurred_on)}{i.occurred_time ? " · " + i.occurred_time : ""}</span>
                     </div>
-                    <div style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0", whiteSpace: "pre-wrap" }}>{i.description}</div>
-                    {i.quotes && <p style={{ fontSize: 12.5, fontFamily: T.serif, fontStyle: "italic", margin: "4px 0", color: "#444" }}>"{i.quotes}"</p>}
+                    {inlineEdit && inlineEdit.id === i.id && inlineEdit.field === "description" ? (
+                      <div style={{ margin: "7px 0" }}>
+                        <textarea autoFocus value={i.description} onChange={(e) => onUpdate(i.id, { description: e.target.value })} onKeyDown={(e) => { if (e.key === "Escape") setInlineEdit(null); }} style={{ fontSize: 13, lineHeight: 1.55, width: "100%", minHeight: 300, padding: "8px 10px", border: "1px solid " + T.gold, borderRadius: 3, background: "#FFFDF5", resize: "vertical", boxSizing: "border-box" }} />
+                        <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center" }}>
+                          <button onClick={() => setInlineEdit(null)} style={{ fontSize: 11.5, padding: "4px 14px", borderRadius: 3, border: "none", background: T.gold, color: "#fff", cursor: "pointer" }}>Done</button>
+                          <span style={{ fontSize: 11, color: T.faint }}>Changes save as you type. Press Esc or click Done to close.</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0", whiteSpace: "pre-wrap", cursor: "text" }} onDoubleClick={() => setInlineEdit({ id: i.id, field: "description" })} title="Double-click to edit">{i.description}</div>
+                    )}
+                    {inlineEdit && inlineEdit.id === i.id && inlineEdit.field === "quotes" ? (
+                      <div style={{ margin: "4px 0" }}>
+                        <textarea autoFocus value={i.quotes || ""} onChange={(e) => onUpdate(i.id, { quotes: e.target.value })} onKeyDown={(e) => { if (e.key === "Escape") setInlineEdit(null); }} style={{ fontSize: 12.5, fontFamily: T.serif, fontStyle: "italic", width: "100%", minHeight: 80, padding: "6px 10px", border: "1px solid " + T.gold, borderRadius: 3, background: "#FFFDF5", resize: "vertical", boxSizing: "border-box" }} />
+                        <div style={{ marginTop: 4 }}>
+                          <button onClick={() => setInlineEdit(null)} style={{ fontSize: 11.5, padding: "4px 14px", borderRadius: 3, border: "none", background: T.gold, color: "#fff", cursor: "pointer" }}>Done</button>
+                        </div>
+                      </div>
+                    ) : (
+                      i.quotes && <p style={{ fontSize: 12.5, fontFamily: T.serif, fontStyle: "italic", margin: "4px 0", color: "#444", cursor: "text" }} onDoubleClick={() => setInlineEdit({ id: i.id, field: "quotes" })} title="Double-click to edit">"{i.quotes}"</p>
+                    )}
                     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 6 }}>
                       {story && <span style={{ fontSize: 10.5, letterSpacing: ".04em", textTransform: "uppercase", color: story.color, border: "1px solid " + story.color, padding: "1px 7px", borderRadius: 2, background: "#fff", fontWeight: 600 }}>{story.label}</span>}
                       <Chip cat={i.category} />
