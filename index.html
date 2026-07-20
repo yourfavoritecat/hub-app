@@ -58,7 +58,7 @@ function witToDB(r) {
   return o;
 }
 function evFromDB(r) {
-  return { ...r, incidentIds: r.incident_ids || [] };
+  return { ...r, incidentIds: r.incident_ids || [], has_image: r.has_image || false };
 }
 function evToDB(r) {
   const o = { ...r };
@@ -75,6 +75,11 @@ async function loadAllData() {
     evidence: evs.map(evFromDB),
     witnesses: wits.map(witFromDB),
   };
+}
+
+// Fetch a single evidence record (includes image_data)
+async function fetchEvidenceDetail(id) {
+  return api("/evidence/" + id);
 }
 
 // Stub for compatibility — no longer saves to localStorage
@@ -538,6 +543,72 @@ const Chip = ({ cat }) => {
 };
 
 /* ---------- Timeline ---------- */
+/* ---------- Exhibit viewer (lazy-loads image_data) ---------- */
+function ExhibitViewer({ exhibit, onClose }) {
+  const [imgData, setImgData] = useState(exhibit.image_data || null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    if (!imgData && exhibit.has_image) {
+      setLoading(true);
+      fetchEvidenceDetail(exhibit.id).then(full => {
+        setImgData(full.image_data || null);
+        setLoading(false);
+      }).catch(() => setLoading(false));
+    }
+  }, [exhibit.id]);
+  return (
+    <div onClick={onClose} style={{ position: "fixed", inset: 0, background: "rgba(20,20,20,.75)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 30, cursor: "zoom-out" }}>
+      <div style={{ maxWidth: "90%", maxHeight: "90%", overflow: "auto", background: "#fff", borderRadius: 6, padding: 20, cursor: "default" }} onClick={(e) => e.stopPropagation()}>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12 }}>
+          <strong style={{ fontFamily: T.mono, fontSize: 14 }}>{exhibit.exhibit_id}</strong>
+          <span style={{ fontSize: 13, flex: 1 }}>{exhibit.label || exhibit.file_name}</span>
+          {exhibit.dated && <span style={{ fontFamily: T.mono, fontSize: 11.5, color: T.faint }}>{fmtDate(exhibit.dated)}</span>}
+          <Btn small onClick={onClose}>Close</Btn>
+        </div>
+        {exhibit.notes && <p style={{ fontSize: 12, color: T.faint, margin: "0 0 10px" }}>{exhibit.notes}</p>}
+        {loading && <p style={{ fontSize: 13, color: T.faint, margin: "20px 0" }}>Loading image...</p>}
+        {imgData && <img src={imgData} style={{ maxWidth: "100%", display: "block", border: "1px solid " + T.line, borderRadius: 3 }} />}
+        {!imgData && !loading && !exhibit.transcription && <p style={{ fontSize: 13, color: T.faint, margin: "20px 0" }}>No image or transcription stored for this exhibit.</p>}
+        {exhibit.transcription && (<div style={{ marginTop: 12 }}>
+          <label>Transcription</label>
+          <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", fontFamily: T.mono, background: "#FAFAF7", border: "1px solid " + T.line, borderRadius: 3, padding: 12, maxHeight: 300, overflow: "auto" }}>{exhibit.transcription}</pre>
+        </div>)}
+      </div>
+    </div>
+  );
+}
+
+/* ---------- Render description with clickable exhibit refs ---------- */
+function DescriptionWithExhibits({ text, evidence, onClickExhibit }) {
+  if (!text) return null;
+  // Match patterns like [Exhibit A-42], Exhibit A-42, (A-42), [A-42], or standalone A-42
+  const pattern = /\[?(?:Exhibit\s+)?(A-\d+)\]?/gi;
+  const parts = [];
+  let last = 0;
+  let m;
+  while ((m = pattern.exec(text)) !== null) {
+    if (m.index > last) parts.push(text.slice(last, m.index));
+    const exhibitId = m[1].toUpperCase();
+    const ev = evidence.find(e => e.exhibit_id === exhibitId);
+    if (ev) {
+      parts.push({ type: "link", exhibitId, ev, raw: m[0] });
+    } else {
+      parts.push(m[0]);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) parts.push(text.slice(last));
+  return React.createElement(React.Fragment, null, ...parts.map((p, i) => {
+    if (typeof p === "string") return React.createElement(React.Fragment, { key: i }, p);
+    return React.createElement("button", {
+      key: i,
+      onClick: (e) => { e.stopPropagation(); onClickExhibit(p.ev); },
+      title: p.ev.label || p.ev.file_name,
+      style: { display: "inline", fontFamily: T.mono, fontSize: 12, border: "1px solid " + T.gold, padding: "0 4px", borderRadius: 2, background: "#FFFDF5", cursor: "pointer", color: T.gold, fontWeight: 600 }
+    }, p.ev.has_image ? "🖼 " + p.raw : p.raw);
+  }));
+}
+
 function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvidence }) {
   const [catFilter, setCatFilter] = useState("");
   const [personFilter, setPersonFilter] = useState("");
@@ -579,24 +650,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
   return (
     <div>
       <H sub="Every documented incident from July 2025 to today, in order. Corroboration marks show how many people can speak to each event.">Timeline</H>
-      {viewExhibit && (
-        <div onClick={() => setViewExhibit(null)} style={{ position: "fixed", inset: 0, background: "rgba(20,20,20,.75)", zIndex: 100, display: "flex", alignItems: "center", justifyContent: "center", padding: 30, cursor: "zoom-out" }}>
-          <div style={{ maxWidth: "90%", maxHeight: "90%", overflow: "auto", background: "#fff", borderRadius: 6, padding: 20, cursor: "default" }} onClick={(e) => e.stopPropagation()}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12, gap: 12 }}>
-              <strong style={{ fontFamily: T.mono, fontSize: 14 }}>{viewExhibit.exhibit_id}</strong>
-              <span style={{ fontSize: 13, flex: 1 }}>{viewExhibit.label || viewExhibit.file_name}</span>
-              {viewExhibit.dated && <span style={{ fontFamily: T.mono, fontSize: 11.5, color: T.faint }}>{fmtDate(viewExhibit.dated)}</span>}
-              <Btn small onClick={() => setViewExhibit(null)}>Close</Btn>
-            </div>
-            {viewExhibit.notes && <p style={{ fontSize: 12, color: T.faint, margin: "0 0 10px" }}>{viewExhibit.notes}</p>}
-            {viewExhibit.image_data && <img src={viewExhibit.image_data} style={{ maxWidth: "100%", display: "block", border: "1px solid " + T.line, borderRadius: 3 }} />}
-            {!viewExhibit.image_data && !viewExhibit.transcription && <p style={{ fontSize: 13, color: T.faint, margin: "20px 0" }}>No image or transcription stored for this exhibit. It may reference a Slack permalink or external document.</p>}
-            {viewExhibit.transcription && (<div style={{ marginTop: 12 }}>
-              <label>Transcription</label>
-              <pre style={{ fontSize: 12, whiteSpace: "pre-wrap", fontFamily: T.mono, background: "#FAFAF7", border: "1px solid " + T.line, borderRadius: 3, padding: 12, maxHeight: 300, overflow: "auto" }}>{viewExhibit.transcription}</pre>
-            </div>)}
-          </div>
-        </div>
+      {viewExhibit && <ExhibitViewer exhibit={viewExhibit} onClose={() => setViewExhibit(null)} />
       )}
       {needsReview > 0 && (
         <Panel style={{ borderLeft: "3px solid " + T.gold, padding: "12px 16px" }}>
@@ -685,7 +739,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
                         </div>
                       </div>
                     ) : (
-                      <div style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0", whiteSpace: "pre-wrap", cursor: "text" }} onDoubleClick={() => setInlineEdit({ id: i.id, field: "description" })} title="Double-click to edit">{i.description}</div>
+                      <div style={{ fontSize: 13, lineHeight: 1.55, margin: "7px 0", whiteSpace: "pre-wrap", cursor: "text" }} onDoubleClick={() => setInlineEdit({ id: i.id, field: "description" })} title="Double-click to edit"><DescriptionWithExhibits text={i.description} evidence={evidence} onClickExhibit={setViewExhibit} /></div>
                     )}
                     {inlineEdit && inlineEdit.id === i.id && inlineEdit.field === "quotes" ? (
                       <div style={{ margin: "4px 0" }}>
@@ -703,7 +757,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
                       {i.relevance === "context" && <span onClick={() => setCtxOpen(p => ({ ...p, [i.id]: false }))} title="Collapse" style={{ fontSize: 10, letterSpacing: ".05em", textTransform: "uppercase", color: T.faint, border: "1px dashed " + T.line, padding: "1px 7px", borderRadius: 2, cursor: "pointer" }}>background ▴</span>}
                       {i.medium && <span style={{ fontSize: 11, color: T.faint }}>{i.medium.replace("_", " ")}</span>}
                       {(i.people_present || []).length > 0 && <span style={{ fontSize: 11, color: T.faint }}>present: {(i.people_present || []).join(", ")}</span>}
-                      {exs.map(e => <button key={e.id} title={e.label || e.exhibit_id} onClick={() => setViewExhibit(e)} style={{ fontFamily: T.mono, fontSize: 10.5, border: "1px solid " + T.line, padding: "1px 6px", borderRadius: 2, background: "#FAFAF7", cursor: "pointer" }}>{e.exhibit_id}</button>)}
+                      {exs.map(e => <button key={e.id} title={e.label || e.exhibit_id} onClick={() => setViewExhibit(e)} style={{ fontFamily: T.mono, fontSize: 10.5, border: "1px solid " + (e.has_image ? T.gold : T.line), padding: "1px 6px", borderRadius: 2, background: e.has_image ? "#FFFDF5" : "#FAFAF7", cursor: "pointer", color: e.has_image ? T.gold : T.ink }}>{e.has_image ? "🖼 " : ""}{e.exhibit_id}</button>)}
                       {wits.length > 0 && <span title="corroborating people" style={{ fontSize: 11, color: T.green }}>{"●".repeat(Math.min(wits.length, 5))} {wits.length} corroborating</span>}
                       <span className="no-print" style={{ marginLeft: "auto", display: "flex", gap: 6 }}>
                         <button onClick={() => setEditId(i.id)} style={{ fontSize: 11.5, padding: "3px 11px", borderRadius: 3, border: "1px solid " + T.line, background: "#fff", color: T.ink }}>Edit</button>
