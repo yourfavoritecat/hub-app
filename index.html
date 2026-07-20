@@ -610,17 +610,57 @@ function DescriptionWithExhibits({ text, evidence, onClickExhibit }) {
   }));
 }
 
+/* ---------- Inline exhibit: auto-loads its image + transcript when shown ---------- */
+function ExhibitInline({ ev }) {
+  const [imgData, setImgData] = useState(ev.image_data || null);
+  const [loading, setLoading] = useState(false);
+  useEffect(() => {
+    let alive = true;
+    if (!imgData && ev.has_image) {
+      setLoading(true);
+      fetchEvidenceDetail(ev.id).then(full => {
+        if (alive) { setImgData(full.image_data || null); setLoading(false); }
+      }).catch(() => { if (alive) setLoading(false); });
+    }
+    return () => { alive = false; };
+  }, [ev.id]);
+  return (
+    <div style={{ border: "1px solid " + T.line, borderRadius: 3, background: "#fff", padding: "10px 12px", marginTop: 8 }}>
+      <div style={{ display: "flex", gap: 8, alignItems: "baseline", flexWrap: "wrap" }}>
+        <strong style={{ fontFamily: T.mono, fontSize: 12, color: T.gold }}>{ev.exhibit_id}</strong>
+        <span style={{ fontSize: 12.5 }}>{ev.label || ev.file_name}</span>
+        {ev.dated && <span style={{ fontFamily: T.mono, fontSize: 11, color: T.faint }}>{fmtDate(ev.dated)}</span>}
+      </div>
+      {ev.notes && <p style={{ fontSize: 11.5, color: T.faint, margin: "5px 0 0" }}>{ev.notes}</p>}
+      {loading && <p style={{ fontSize: 12, color: T.faint, margin: "8px 0 0" }}>Loading image…</p>}
+      {imgData && <img src={imgData} style={{ maxWidth: "100%", maxHeight: 500, display: "block", border: "1px solid " + T.line, borderRadius: 3, marginTop: 8 }} />}
+      {ev.transcription && (
+        <pre style={{ fontSize: 11.5, whiteSpace: "pre-wrap", fontFamily: T.mono, background: "#FAFAF7", border: "1px solid " + T.line, borderRadius: 3, padding: 10, maxHeight: 240, overflow: "auto", marginTop: 8, marginBottom: 0 }}>{ev.transcription}</pre>
+      )}
+      {!ev.has_image && !ev.transcription && !loading && <p style={{ fontSize: 11.5, color: T.faint, margin: "6px 0 0" }}>No image or transcript stored — may reference a Slack permalink or external doc.</p>}
+    </div>
+  );
+}
+
 /* ---------- Date timeline: strict chronological list, one row per incident ---------- */
 function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
   const [newDate, setNewDate] = useState("");
   const [newTitle, setNewTitle] = useState("");
-  const [editId, setEditId] = useState(null);
+  const [titleEditId, setTitleEditId] = useState(null);
+  const [fullEditId, setFullEditId] = useState(null);
+  const [expanded, setExpanded] = useState({});
   const [viewExhibit, setViewExhibit] = useState(null);
   const sorted = [...incidents].sort((a, b) => {
     const d = (a.occurred_on || "").localeCompare(b.occurred_on || "");
     if (d !== 0) return d;
     return (a.occurred_time || "").localeCompare(b.occurred_time || "");
   });
+  const allOpen = sorted.length > 0 && sorted.every(i => expanded[i.id]);
+  const toggleAll = () => {
+    if (allOpen) { setExpanded({}); }
+    else { const m = {}; sorted.forEach(i => { m[i.id] = true; }); setExpanded(m); }
+  };
+  const toggleRow = (id) => setExpanded(p => ({ ...p, [id]: !p[id] }));
   const quickAdd = () => {
     if (!newDate || !newTitle.trim()) return;
     onAdd({ occurred_on: newDate, occurred_time: "", title: newTitle.trim(), description: "", quotes: "", medium: "", category: "other", people_present: [], evidenceIds: [], storyline: "baseline", relevance: "core", is_draft: false, starred: false });
@@ -628,20 +668,27 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
   };
   return (
     <div>
-      <H sub="Every incident, one per line, in strict date order. Add a quick entry below, or click a row to edit its details.">Timeline</H>
+      <H sub="Every incident, one per line, in strict date order. Click a row to expand its full story, images, and transcripts.">Timeline</H>
       {viewExhibit && <ExhibitViewer exhibit={viewExhibit} onClose={() => setViewExhibit(null)} />}
-      <Panel style={{ padding: "10px 14px", marginBottom: 14 }}>
+      <Panel style={{ padding: "10px 14px", marginBottom: 10 }}>
         <div style={{ display: "flex", gap: 10, alignItems: "flex-end" }}>
           <div style={{ width: 165 }}><label>Date</label><input type="date" value={newDate} onChange={(e) => setNewDate(e.target.value)} /></div>
           <div style={{ flex: 1 }}><label>What happened (short)</label><input placeholder="e.g. Ivy cancels 1:1 again" value={newTitle} onChange={(e) => setNewTitle(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") quickAdd(); }} /></div>
           <Btn small primary onClick={quickAdd}>Add</Btn>
         </div>
       </Panel>
+      <div style={{ marginBottom: 10 }}>
+        <button onClick={toggleAll} style={{ fontSize: 12, padding: "5px 13px", borderRadius: 3, border: "1px dashed " + T.line, background: "#fff", color: T.faint }}>
+          {allOpen ? "▾ Collapse all" : "▸ Expand all (" + sorted.length + ")"}
+        </button>
+      </div>
       <div>
         {sorted.map((i, idx) => {
           const exs = (i.evidenceIds || []).map(id => evidence.find(e => e.id === id)).filter(Boolean);
           const cat = CATEGORIES[i.category] || CATEGORIES.other;
-          const editing = editId === i.id;
+          const story = STORYLINES[i.storyline];
+          const isOpen = !!expanded[i.id];
+          const isFullEdit = fullEditId === i.id;
           const prevYear = idx > 0 ? (sorted[idx-1].occurred_on || "").slice(0, 4) : null;
           const year = (i.occurred_on || "").slice(0, 4);
           return (
@@ -649,19 +696,62 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
               {year !== prevYear && (
                 <div style={{ fontFamily: T.mono, fontSize: 12, fontWeight: 700, letterSpacing: ".1em", color: T.faint, padding: "16px 0 6px", borderBottom: "2px solid " + T.ink, marginBottom: 4 }}>{year}</div>
               )}
-              <div style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "7px 10px", borderBottom: "1px solid " + T.line, background: i.starred ? "#FFFDF2" : "transparent" }}>
-                <button onClick={() => onUpdate(i.id, { starred: !i.starred })} title={i.starred ? "Unstar" : "Star"} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 14, lineHeight: "20px", color: i.starred ? "#D4A017" : "#CCC", flexShrink: 0 }}>{i.starred ? "★" : "☆"}</button>
-                <span style={{ fontFamily: T.mono, fontSize: 12, whiteSpace: "nowrap", width: 88, flexShrink: 0, lineHeight: "20px", fontWeight: 600 }}>{fmtDate(i.occurred_on)}</span>
-                <span style={{ width: 8, height: 8, borderRadius: 99, background: cat.color, flexShrink: 0, marginTop: 6 }} title={cat.label} />
-                {editing ? (
-                  <input autoFocus value={i.title} onChange={(e) => onUpdate(i.id, { title: e.target.value })} onBlur={() => setEditId(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setEditId(null); }} style={{ flex: 1, fontSize: 13, padding: "1px 6px" }} />
-                ) : (
-                  <span onDoubleClick={() => setEditId(i.id)} title="Double-click to edit" style={{ flex: 1, fontSize: 13, lineHeight: "20px", cursor: "text" }}>{i.title}{i.relevance === "context" && <span style={{ fontSize: 10, color: T.faint, marginLeft: 6, textTransform: "uppercase", letterSpacing: ".05em" }}>background</span>}</span>
+              <div style={{ borderBottom: "1px solid " + T.line, background: i.starred ? "#FFFDF2" : "transparent" }}>
+                <div onClick={() => { if (!isFullEdit && titleEditId !== i.id) toggleRow(i.id); }} style={{ display: "flex", gap: 10, alignItems: "flex-start", padding: "7px 10px", cursor: "pointer" }}>
+                  <span style={{ fontSize: 10, color: T.faint, lineHeight: "20px", flexShrink: 0, width: 10 }}>{isOpen ? "▾" : "▸"}</span>
+                  <button onClick={(e) => { e.stopPropagation(); onUpdate(i.id, { starred: !i.starred }); }} title={i.starred ? "Unstar" : "Star"} style={{ border: "none", background: "none", padding: 0, cursor: "pointer", fontSize: 14, lineHeight: "20px", color: i.starred ? "#D4A017" : "#CCC", flexShrink: 0 }}>{i.starred ? "★" : "☆"}</button>
+                  <span style={{ fontFamily: T.mono, fontSize: 12, whiteSpace: "nowrap", width: 88, flexShrink: 0, lineHeight: "20px", fontWeight: 600 }}>{fmtDate(i.occurred_on)}</span>
+                  <span style={{ width: 8, height: 8, borderRadius: 99, background: cat.color, flexShrink: 0, marginTop: 6 }} title={cat.label} />
+                  {titleEditId === i.id ? (
+                    <input autoFocus value={i.title} onClick={(e) => e.stopPropagation()} onChange={(e) => onUpdate(i.id, { title: e.target.value })} onBlur={() => setTitleEditId(null)} onKeyDown={(e) => { if (e.key === "Enter" || e.key === "Escape") setTitleEditId(null); }} style={{ flex: 1, fontSize: 13, padding: "1px 6px" }} />
+                  ) : (
+                    <span onDoubleClick={(e) => { e.stopPropagation(); setTitleEditId(i.id); }} title="Double-click to edit title · click to expand" style={{ flex: 1, fontSize: 13, lineHeight: "20px" }}>{i.title}{i.relevance === "context" && <span style={{ fontSize: 10, color: T.faint, marginLeft: 6, textTransform: "uppercase", letterSpacing: ".05em" }}>background</span>}</span>
+                  )}
+                  <span style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
+                    {exs.map(e => <button key={e.id} title={e.label || e.exhibit_id} onClick={(ev2) => { ev2.stopPropagation(); setViewExhibit(e); }} style={{ fontFamily: T.mono, fontSize: 10, border: "1px solid " + (e.has_image ? T.gold : T.line), padding: "0 5px", borderRadius: 2, background: e.has_image ? "#FFFDF5" : "#FAFAF7", cursor: "pointer", color: e.has_image ? T.gold : T.ink, lineHeight: "18px" }}>{e.has_image ? "🖼" : ""}{e.exhibit_id}</button>)}
+                    <button onClick={(e) => { e.stopPropagation(); setFullEditId(isFullEdit ? null : i.id); setExpanded(p => ({ ...p, [i.id]: true })); }} title="Edit details" style={{ border: "none", background: "none", padding: "0 2px", cursor: "pointer", fontSize: 13, lineHeight: "20px", color: T.faint }}>✎</button>
+                    <button onClick={(e) => { e.stopPropagation(); if (window.confirm('Remove "' + i.title + '" from the timeline?')) onDelete(i.id); }} title="Remove" style={{ border: "none", background: "none", padding: "0 4px", cursor: "pointer", fontSize: 15, lineHeight: "20px", color: "#C99" }}>×</button>
+                  </span>
+                </div>
+                {isOpen && !isFullEdit && (
+                  <div style={{ padding: "2px 10px 14px 46px" }}>
+                    {i.description ? (
+                      <div style={{ fontSize: 13, lineHeight: 1.55, whiteSpace: "pre-wrap" }}><DescriptionWithExhibits text={i.description} evidence={evidence} onClickExhibit={setViewExhibit} /></div>
+                    ) : (
+                      <p style={{ fontSize: 12.5, color: T.faint, margin: 0 }}>No details written yet — hit ✎ to add the story.</p>
+                    )}
+                    {i.quotes && <p style={{ fontSize: 12.5, fontFamily: T.serif, fontStyle: "italic", margin: "8px 0 0", color: "#444" }}>"{i.quotes}"</p>}
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", marginTop: 8 }}>
+                      {story && <span style={{ fontSize: 10.5, letterSpacing: ".04em", textTransform: "uppercase", color: story.color, border: "1px solid " + story.color, padding: "1px 7px", borderRadius: 2, background: "#fff", fontWeight: 600 }}>{story.label}</span>}
+                      <Chip cat={i.category} />
+                      {i.occurred_time && <span style={{ fontSize: 11, color: T.faint }}>{i.occurred_time}</span>}
+                      {i.medium && <span style={{ fontSize: 11, color: T.faint }}>{i.medium.replace("_", " ")}</span>}
+                      {(i.people_present || []).length > 0 && <span style={{ fontSize: 11, color: T.faint }}>present: {(i.people_present || []).join(", ")}</span>}
+                    </div>
+                    {exs.length > 0 && exs.map(e => <ExhibitInline key={e.id} ev={e} />)}
+                  </div>
                 )}
-                <span style={{ display: "flex", gap: 4, flexShrink: 0, alignItems: "center" }}>
-                  {exs.map(e => <button key={e.id} title={e.label || e.exhibit_id} onClick={() => setViewExhibit(e)} style={{ fontFamily: T.mono, fontSize: 10, border: "1px solid " + (e.has_image ? T.gold : T.line), padding: "0 5px", borderRadius: 2, background: e.has_image ? "#FFFDF5" : "#FAFAF7", cursor: "pointer", color: e.has_image ? T.gold : T.ink, lineHeight: "18px" }}>{e.has_image ? "🖼" : ""}{e.exhibit_id}</button>)}
-                  <button onClick={() => { if (window.confirm('Remove "' + i.title + '" from the timeline?')) onDelete(i.id); }} title="Remove" style={{ border: "none", background: "none", padding: "0 4px", cursor: "pointer", fontSize: 15, lineHeight: "20px", color: "#C99" }}>×</button>
-                </span>
+                {isOpen && isFullEdit && (
+                  <div className="no-print" style={{ padding: "2px 10px 14px 46px" }}>
+                    <label>Title</label><input value={i.title} onChange={(e) => onUpdate(i.id, { title: e.target.value })} />
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>
+                      <div><label>Date</label><input type="date" value={i.occurred_on || ""} onChange={(e) => onUpdate(i.id, { occurred_on: e.target.value })} /></div>
+                      <div><label>Approx. time</label><input value={i.occurred_time || ""} onChange={(e) => onUpdate(i.id, { occurred_time: e.target.value })} /></div>
+                      <div><label>Category</label><select value={i.category} onChange={(e) => onUpdate(i.id, { category: e.target.value })}>{Object.entries(CATEGORIES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                      <div><label>Situation</label><select value={i.storyline || "baseline"} onChange={(e) => onUpdate(i.id, { storyline: e.target.value })}>{Object.entries(STORYLINES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}</select></div>
+                      <div><label>Weight</label><select value={i.relevance || "core"} onChange={(e) => onUpdate(i.id, { relevance: e.target.value })}><option value="core">Core evidence</option><option value="context">Background (collapses)</option></select></div>
+                    </div>
+                    <label>What happened</label><textarea style={{ minHeight: 200 }} value={i.description} onChange={(e) => onUpdate(i.id, { description: e.target.value })} />
+                    <label>Exact quotes</label><textarea style={{ minHeight: 50 }} value={i.quotes || ""} onChange={(e) => onUpdate(i.id, { quotes: e.target.value })} />
+                    <label>People present (comma-separated)</label><input value={(i.people_present || []).join(", ")} onChange={(e) => onUpdate(i.id, { people_present: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
+                    <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
+                      <Btn small primary onClick={() => setFullEditId(null)}>Done</Btn>
+                      <span style={{ fontSize: 11.5, color: T.faint, alignSelf: "center" }}>Changes save as you type.</span>
+                    </div>
+                  </div>
+                )}
               </div>
             </React.Fragment>
           );
