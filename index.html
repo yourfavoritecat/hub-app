@@ -286,7 +286,7 @@ function PasswordGate({ children }) {
 
 function CaseHub() {
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState("timeline");
+  const [tab, setTab] = useState("datetimeline");
   const [incidents, setIncidents] = useState([]);
   const [evidence, setEvidence] = useState([]);
   const [witnesses, setWitnesses] = useState([]);
@@ -412,12 +412,15 @@ function CaseHub() {
   };
 
   const nav = [
-    ["Your case", [["datetimeline", "Timeline"], ["timeline", "Case overview"], ["export", "Case file (print)"]]],
-    ["Add to it", [["intake", "Add everything"], ["log", "Log one incident"], ["evidence", "Evidence vault"], ["witnesses", "Witnesses"], ["retaliation", "Retaliation watch"]]],
-    ["Check it", [["dupes", "Duplicates"], ["audit", "Auditor"], ["analysis", "AI analysis"]]],
-    ["Learn", [["legal", "Legal reference"]]],
+    ["Your case", [["datetimeline", "Timeline"], ["timeline", "Case overview"]]],
     ["", [["settings", "Settings & backup"]]],
   ];
+  const moreNav = [
+    ["export", "Case file (print)"], ["intake", "Add everything"], ["log", "Log one incident"],
+    ["evidence", "Evidence vault"], ["witnesses", "Witnesses"], ["retaliation", "Retaliation watch"],
+    ["dupes", "Duplicates"], ["audit", "Auditor"], ["analysis", "AI analysis"], ["legal", "Legal reference"],
+  ];
+  const [showMore, setShowMore] = useState(() => moreNav.some(([k]) => k === tab));
   const audit = useMemo(() => runAudit(incidents, evidence, witnesses), [incidents, evidence, witnesses]);
 
   if (loading) return (
@@ -457,6 +460,29 @@ function CaseHub() {
               ))}
             </div>
           ))}
+          <div style={{ marginBottom: 10 }}>
+            <button onClick={() => setShowMore(s => !s)} style={{
+              display: "block", width: "100%", textAlign: "left", padding: "7px 12px", margin: "1px 0",
+              border: "none", borderRadius: 3, fontSize: 12, background: "transparent", color: T.faint,
+            }}>
+              {showMore ? "▾" : "▸"} More tools
+            </button>
+            {showMore && moreNav.map(([k, label]) => (
+              <button key={k} onClick={() => setTab(k)} style={{
+                display: "block", width: "100%", textAlign: "left", padding: "6px 12px 6px 22px", margin: "1px 0",
+                border: "none", borderRadius: 3, fontSize: 12.5,
+                background: tab === k ? T.ink : "transparent", color: tab === k ? T.paper : T.faint,
+              }}>
+                {label}
+                {k === "audit" && audit.issues.length > 0 && (
+                  <span style={{ float: "right", fontFamily: T.mono, fontSize: 11, color: tab === k ? T.paper : T.accent }}>{audit.issues.length}</span>
+                )}
+                {k === "dupes" && dupeFlagged > 0 && (
+                  <span style={{ float: "right", fontFamily: T.mono, fontSize: 11, color: tab === k ? T.paper : T.gold }}>{dupeFlagged}</span>
+                )}
+              </button>
+            ))}
+          </div>
         </nav>
         {(incidents.length > 0 || evidence.length > 0) && (!lastBackup || (Date.now() - new Date(lastBackup + "T00:00:00")) > 604800000) && (
           <div style={{ margin: "0 14px 10px", padding: "8px 10px", background: "#FBF6E9", border: "1px solid #E4D9BC", borderRadius: 3, fontSize: 11, lineHeight: 1.45 }}>
