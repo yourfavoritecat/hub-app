@@ -67,6 +67,59 @@ function evToDB(r) {
   return o;
 }
 
+/* ---------- text cleanup (rule-based, instant) ---------- */
+function cleanUpText(text) {
+  if (!text) return text;
+  let t = text;
+
+  // Fix standalone "i" → "I" and contractions
+  t = t.replace(/(^|[\s,.(])i(?=[''\s,.)!?]|$)/gm, '$1I');
+  t = t.replace(/\bi'm\b/g, "I'm"); t = t.replace(/\bi've\b/g, "I've");
+  t = t.replace(/\bi'd\b/g, "I'd"); t = t.replace(/\bi'll\b/g, "I'll");
+
+  // Text abbreviations → full words
+  const subs = [
+    [/\bidk\b/gi, "I don't know"], [/\btbh\b/gi, "to be honest"],
+    [/\bimo\b/gi, "in my opinion"], [/\bw\/o\b/gi, "without"],
+    [/\bw\/(?=\s)/g, "with"], [/\bppl\b/gi, "people"],
+    [/\bconvos\b/gi, "conversations"], [/\bconvo\b/gi, "conversation"],
+    [/\bcuz\b/gi, "because"], [/\b'cause\b/gi, "because"],
+    [/\bgonna\b/gi, "going to"], [/\bwanna\b/gi, "want to"],
+    [/\bgotta\b/gi, "have to"], [/\bkinda\b/gi, "kind of"],
+    [/\bsorta\b/gi, "sort of"], [/\btho\b/gi, "though"],
+    [/\bthru\b/gi, "through"], [/\bngl\b/gi, ""],
+    [/\brn\b/gi, "right now"], [/\bsm\b/gi, "so much"],
+  ];
+  subs.forEach(([re, rep]) => { t = t.replace(re, rep); });
+
+  // Remove filler phrases (conservative patterns only)
+  t = t.replace(/,\s*like,\s*/gi, ', ');
+  t = t.replace(/,\s*you know,?\s*/gi, ' ');
+  t = t.replace(/,\s*I mean,\s*/gi, ', ');
+  t = t.replace(/(^|\.\s+)(Basically|Honestly|Like|I mean|I guess),?\s+/gim, '$1');
+
+  // Reduce emotional emphasis
+  t = t.replace(/so{2,}/gi, 'so');
+  t = t.replace(/\breally really\b/gi, 'very');
+  t = t.replace(/\bsuper\s+(frustrat\w*|upset|uncomfortable|weird|strange|annoy\w*|rude|aggressive)/gi, 'very $1');
+
+  // ALL CAPS → Title case (skip known acronyms)
+  const acr = new Set(['SLG','VIP','CSM','GMV','CEO','VP','HR','DM','PM','AM','API','PDF','CRM','KPI','ROI','FAQ','FYI','ETA','COO','CFO','CTO','CMO','HQ','PR','QA','IT','UI','UX','LLC','ASAP','OK','IMO']);
+  t = t.replace(/\b([A-Z]{3,})\b/g, m => acr.has(m) ? m : m.charAt(0).toUpperCase() + m.slice(1).toLowerCase());
+
+  // Fix punctuation
+  t = t.replace(/!{2,}/g, '.'); t = t.replace(/\?{2,}/g, '?'); t = t.replace(/\.{4,}/g, '...');
+
+  // Capitalize first letter of each sentence
+  t = t.replace(/(^|[.!?]\s+)([a-z])/gm, (m, p, c) => p + c.toUpperCase());
+
+  // Clean up whitespace
+  t = t.replace(/ {2,}/g, ' ');
+  t = t.split('\n').map(l => l.trim()).join('\n');
+  t = t.replace(/\n{3,}/g, '\n\n');
+  return t.trim();
+}
+
 async function loadAllData() {
   const [incs, evs, wits] = await Promise.all([
     api("/incidents"), api("/evidence"), api("/witnesses")
@@ -711,6 +764,7 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete, onAddEvi
   const [titleEditId, setTitleEditId] = useState(null);
   const [fullEditId, setFullEditId] = useState(null);
   const [expanded, setExpanded] = useState({});
+  const [cleanupOriginals, setCleanupOriginals] = useState({});
   const [viewExhibit, setViewExhibit] = useState(null);
   const sorted = [...incidents].sort((a, b) => {
     const d = (a.occurred_on || "").localeCompare(b.occurred_on || "");
@@ -791,8 +845,17 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete, onAddEvi
                       {(i.people_present || []).length > 0 && <span style={{ fontSize: 11, color: T.faint }}>present: {(i.people_present || []).join(", ")}</span>}
                     </div>
                     {exs.length > 0 && exs.map(e => <ExhibitInline key={e.id} ev={e} />)}
-                    <div style={{ marginTop: 10 }}>
+                    <div style={{ marginTop: 10, display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
                       <AttachImages incident={i} onAddEvidence={onAddEvidence} onUpdate={onUpdate} notify={notify} />
+                      {i.description && !cleanupOriginals[i.id] && (
+                        <button onClick={(e) => { e.stopPropagation(); const orig = i.description; const cleaned = cleanUpText(orig); if (cleaned !== orig) { setCleanupOriginals(p => ({...p, [i.id]: orig})); onUpdate(i.id, { description: cleaned }); } else { notify && notify("Already clean — no changes needed."); } }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 3, border: "1px solid " + T.gold, background: "#FFFDF5", color: T.gold, cursor: "pointer" }}>✨ Clean up</button>
+                      )}
+                      {cleanupOriginals[i.id] && (
+                        <React.Fragment>
+                          <button onClick={(e) => { e.stopPropagation(); onUpdate(i.id, { description: cleanupOriginals[i.id] }); setCleanupOriginals(p => { const n = {...p}; delete n[i.id]; return n; }); }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 3, border: "1px solid " + T.line, background: "#fff", color: T.faint, cursor: "pointer" }}>↩ Undo cleanup</button>
+                          <span style={{ fontSize: 11, color: T.green }}>Cleaned up</span>
+                        </React.Fragment>
+                      )}
                     </div>
                   </div>
                 )}
@@ -809,6 +872,16 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete, onAddEvi
                       <div><label>Weight</label><select value={i.relevance || "core"} onChange={(e) => onUpdate(i.id, { relevance: e.target.value })}><option value="core">Core evidence</option><option value="context">Background (collapses)</option></select></div>
                     </div>
                     <label>What happened</label><textarea style={{ minHeight: 200 }} value={i.description} onChange={(e) => onUpdate(i.id, { description: e.target.value })} />
+                    <div style={{ marginTop: 4, display: "flex", gap: 8, alignItems: "center" }}>
+                      {cleanupOriginals[i.id] ? (
+                        <React.Fragment>
+                          <button onClick={() => { onUpdate(i.id, { description: cleanupOriginals[i.id] }); setCleanupOriginals(p => { const n = {...p}; delete n[i.id]; return n; }); }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 3, border: "1px solid " + T.line, background: "#fff", color: T.faint, cursor: "pointer" }}>↩ Undo cleanup</button>
+                          <span style={{ fontSize: 11, color: T.green }}>Cleaned up — review changes above</span>
+                        </React.Fragment>
+                      ) : (
+                        <button onClick={() => { const orig = i.description || ""; const cleaned = cleanUpText(orig); if (cleaned !== orig) { setCleanupOriginals(p => ({...p, [i.id]: orig})); onUpdate(i.id, { description: cleaned }); } else { notify && notify("Already clean — no changes needed."); } }} style={{ fontSize: 11, padding: "3px 10px", borderRadius: 3, border: "1px solid " + T.gold, background: "#FFFDF5", color: T.gold, cursor: "pointer" }}>✨ Clean up</button>
+                      )}
+                    </div>
                     <label>Exact quotes</label><textarea style={{ minHeight: 50 }} value={i.quotes || ""} onChange={(e) => onUpdate(i.id, { quotes: e.target.value })} />
                     <label>People present (comma-separated)</label><input value={(i.people_present || []).join(", ")} onChange={(e) => onUpdate(i.id, { people_present: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
                     <label>Attachments</label>
