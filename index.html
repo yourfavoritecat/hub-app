@@ -650,8 +650,7 @@ function Timeline({ incidents, witnesses, evidence, onUpdate, onDelete, onGoEvid
   return (
     <div>
       <H sub="Every documented incident from July 2025 to today, in order. Corroboration marks show how many people can speak to each event.">Timeline</H>
-      {viewExhibit && <ExhibitViewer exhibit={viewExhibit} onClose={() => setViewExhibit(null)} />
-      )}
+      {viewExhibit && <ExhibitViewer exhibit={viewExhibit} onClose={() => setViewExhibit(null)} />}
       {needsReview > 0 && (
         <Panel style={{ borderLeft: "3px solid " + T.gold, padding: "12px 16px" }}>
           <p style={{ margin: 0, fontSize: 13 }}><strong>{needsReview}</strong> item{needsReview === 1 ? "" : "s"} below {needsReview === 1 ? "is" : "are"} waiting for you to double-check the date and hit <strong>Confirm</strong>. Everything else is done.</p>
