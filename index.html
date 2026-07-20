@@ -63,6 +63,7 @@ function evFromDB(r) {
 function evToDB(r) {
   const o = { ...r };
   if ('incidentIds' in o) { o.incident_ids = o.incidentIds; delete o.incidentIds; }
+  delete o.has_image;
   return o;
 }
 
@@ -496,7 +497,7 @@ function CaseHub() {
       </aside>
 
       <main style={{ flex: 1, padding: "30px 38px", maxWidth: 980 }}>
-        {tab === "datetimeline" && <DateTimeline incidents={incidents} evidence={evidence} onAdd={addIncident} onUpdate={updateIncident} onDelete={deleteIncident} />}
+        {tab === "datetimeline" && <DateTimeline incidents={incidents} evidence={evidence} onAdd={addIncident} onUpdate={updateIncident} onDelete={deleteIncident} onAddEvidence={addEvidence} notify={notify} />}
         {tab === "timeline" && <Timeline incidents={incidents} witnesses={witnesses} evidence={evidence} onUpdate={updateIncident} onDelete={deleteIncident} onGoEvidence={(eid) => { setTab("evidence"); setTimeout(() => { const el = document.getElementById("ev-" + eid); if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.style.outline = "2px solid " + T.gold; setTimeout(() => { el.style.outline = ""; }, 2400); } }, 120); }} />}
         {tab === "log" && <IncidentForm onSave={addIncident} evidence={evidence} />}
         {tab === "intake" && <BulkIntake apiKey={apiKey} goSettings={() => setTab("settings")} onDrafts={(ds) => ds.forEach(addIncident)} incidents={incidents} evidence={evidence} onAddEvidence={addEvidence} onPatchEvidence={updateEvidence} text={intakeText} setText={setIntakeText} drafts={intakeDrafts} setDrafts={setIntakeDrafts} />}
@@ -668,8 +669,43 @@ function ExhibitInline({ ev }) {
   );
 }
 
+/* ---------- Attach images to an incident (works on phone + computer) ---------- */
+function AttachImages({ incident, onAddEvidence, onUpdate, notify }) {
+  const fileRef = useRef(null);
+  const [busy, setBusy] = useState(false);
+  const handleFiles = async (e) => {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
+    setBusy(true);
+    const newIds = [];
+    for (const f of files) {
+      try {
+        const raw = await readAsDataURL(f);
+        const img = f.type.startsWith("image/") ? await downscaleImage(raw) : raw;
+        const row = onAddEvidence({
+          file_name: f.name, file_type: f.type, label: f.name.replace(/\.[^.]+$/, ""),
+          dated: incident.occurred_on || "", notes: "", transcription: "", image_url: "",
+          incidentIds: [incident.id], image_data: img, has_image: true,
+        });
+        if (row && row.id) newIds.push(row.id);
+      } catch (err) { if (notify) notify("Couldn't read " + f.name); }
+    }
+    if (newIds.length) onUpdate(incident.id, { evidenceIds: [...(incident.evidenceIds || []), ...newIds] });
+    setBusy(false);
+    e.target.value = "";
+  };
+  return (
+    <span>
+      <input ref={fileRef} type="file" accept="image/*,.pdf,.txt" multiple style={{ display: "none" }} onChange={handleFiles} />
+      <button onClick={() => fileRef.current.click()} disabled={busy} style={{ fontSize: 11.5, padding: "4px 12px", borderRadius: 3, border: "1px dashed " + T.gold, background: "#FFFDF5", color: T.gold, cursor: "pointer", fontWeight: 600 }}>
+        {busy ? "Uploading…" : "📎 Attach image / file"}
+      </button>
+    </span>
+  );
+}
+
 /* ---------- Date timeline: strict chronological list, one row per incident ---------- */
-function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
+function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete, onAddEvidence, notify }) {
   const [newDate, setNewDate] = useState("");
   const [newTitle, setNewTitle] = useState("");
   const [titleEditId, setTitleEditId] = useState(null);
@@ -755,6 +791,9 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
                       {(i.people_present || []).length > 0 && <span style={{ fontSize: 11, color: T.faint }}>present: {(i.people_present || []).join(", ")}</span>}
                     </div>
                     {exs.length > 0 && exs.map(e => <ExhibitInline key={e.id} ev={e} />)}
+                    <div style={{ marginTop: 10 }}>
+                      <AttachImages incident={i} onAddEvidence={onAddEvidence} onUpdate={onUpdate} notify={notify} />
+                    </div>
                   </div>
                 )}
                 {isOpen && isFullEdit && (
@@ -772,6 +811,11 @@ function DateTimeline({ incidents, evidence, onAdd, onUpdate, onDelete }) {
                     <label>What happened</label><textarea style={{ minHeight: 200 }} value={i.description} onChange={(e) => onUpdate(i.id, { description: e.target.value })} />
                     <label>Exact quotes</label><textarea style={{ minHeight: 50 }} value={i.quotes || ""} onChange={(e) => onUpdate(i.id, { quotes: e.target.value })} />
                     <label>People present (comma-separated)</label><input value={(i.people_present || []).join(", ")} onChange={(e) => onUpdate(i.id, { people_present: e.target.value.split(",").map(s => s.trim()).filter(Boolean) })} />
+                    <label>Attachments</label>
+                    <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                      {exs.map(e => <span key={e.id} style={{ fontFamily: T.mono, fontSize: 10.5, border: "1px solid " + T.line, padding: "2px 7px", borderRadius: 2, background: "#FAFAF7" }}>{e.has_image ? "🖼 " : ""}{e.exhibit_id}</span>)}
+                      <AttachImages incident={i} onAddEvidence={onAddEvidence} onUpdate={onUpdate} notify={notify} />
+                    </div>
                     <div style={{ marginTop: 12, display: "flex", gap: 8 }}>
                       <Btn small primary onClick={() => setFullEditId(null)}>Done</Btn>
                       <span style={{ fontSize: 11.5, color: T.faint, alignSelf: "center" }}>Changes save as you type.</span>
